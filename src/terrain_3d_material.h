@@ -86,10 +86,11 @@ private:
 	String _apply_inserts(const String &p_shader, const Array &p_excludes = Array()) const;
 	String _generate_shader_code() const;
 	String _generate_buffer_shader_code();
+	String _generate_ocean_shader_code();
 	String _strip_comments(const String &p_shader) const;
 	String _inject_editor_code(const String &p_shader) const;
 	void _update_shaders();
-	void _update_shader(bool p_shader_override_enabled, Ref<Shader> p_shader_override, Ref<Shader> p_shader, const RID p_material);
+	void _update_shader(bool p_shader_override_enabled, Ref<Shader> p_shader_override, Ref<Shader> p_shader, const RID p_material, const Callable &code_generation_function);
 	void _update_material_maps(const RID p_material);
 	void _update_maps();
 	void _update_texture_arrays();

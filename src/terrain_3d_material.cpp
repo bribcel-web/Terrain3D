@@ -52,6 +52,9 @@ void Terrain3DMaterial::_preload_shaders() {
 	_shader_code["displacement_buffer"] = String(
 #include "shaders/displacement_buffer.glsl"
 	);
+	_shader_code["ocean"] = String(
+#include "shaders/ocean.glsl"
+	);
 
 	if (Terrain3D::debug_level >= DEBUG) {
 		Array keys = _shader_code.keys();
@@ -271,6 +274,13 @@ String Terrain3DMaterial::_generate_buffer_shader_code() {
 	return shader;
 }
 
+String Terrain3DMaterial::_generate_ocean_shader_code() {
+	LOG(INFO, "Generating default ocean shader code");
+	Array excludes;
+	String shader = _apply_inserts(_shader_code["ocean"], excludes);
+	return shader;
+}
+
 String Terrain3DMaterial::_inject_editor_code(const String &p_shader) const {
 	String shader = _strip_comments(p_shader);
 
@@ -423,12 +433,12 @@ String Terrain3DMaterial::_inject_editor_code(const String &p_shader) const {
 void Terrain3DMaterial::_update_shaders() {
 	IS_INIT(VOID);
 	LOG(INFO, "Updating shaders");
-	_update_shader(_shader_override_enabled, _shader_override, _shader, _material);
-	_update_shader(_ocean_shader_override_enabled, _ocean_shader_override, _ocean_shader, _ocean_material);
-	_update_shader(_buffer_shader_override_enabled, _buffer_shader_override, _buffer_shader, _buffer_material);
+	_update_shader(_shader_override_enabled, _shader_override, _shader, _material, callable_mp(this, &Terrain3DMaterial::_generate_shader_code));
+	_update_shader(_ocean_shader_override_enabled, _ocean_shader_override, _ocean_shader, _ocean_material, callable_mp(this, &Terrain3DMaterial::_generate_ocean_shader_code));
+	_update_shader(_buffer_shader_override_enabled, _buffer_shader_override, _buffer_shader, _buffer_material, callable_mp(this, &Terrain3DMaterial::_generate_buffer_shader_code));
 }
 
-void Terrain3DMaterial::_update_shader(bool p_shader_override_enabled, Ref<Shader> p_shader_override, Ref<Shader> p_shader, const RID p_material) {
+void Terrain3DMaterial::_update_shader(bool p_shader_override_enabled, Ref<Shader> p_shader_override, Ref<Shader> p_shader, const RID p_material, const Callable &code_generation_function) {
 	IS_INIT(VOID);
 	LOG(INFO, "Updating shader");
 	String code;
@@ -437,7 +447,7 @@ void Terrain3DMaterial::_update_shader(bool p_shader_override_enabled, Ref<Shade
 	regex.instantiate();
 	if (p_shader_override_enabled && p_shader_override.is_valid()) {
 		if (p_shader_override->get_code().is_empty()) {
-			p_shader_override->set_code(_generate_shader_code());
+			p_shader_override->set_code(code_generation_function.call());
 		}
 		code = p_shader_override->get_code();
 		if (!p_shader_override->is_connected("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders))) {
@@ -445,7 +455,7 @@ void Terrain3DMaterial::_update_shader(bool p_shader_override_enabled, Ref<Shade
 			p_shader_override->connect("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders));
 		}
 	} else {
-		code = _generate_shader_code();
+		code = code_generation_function.call();
 	}
 	p_shader->set_code(_inject_editor_code(code));
 	RID shader_rid;
@@ -457,23 +467,6 @@ void Terrain3DMaterial::_update_shader(bool p_shader_override_enabled, Ref<Shade
 	}
 	RS->material_set_shader(p_material, shader_rid);
 	LOG(DEBUG, "Material rid: ", p_material, ", shader rid: ", shader_rid);
-
-	// Displacement Buffer
-	if (_buffer_shader_override_enabled && _buffer_shader_override.is_valid()) {
-		if (_buffer_shader_override->get_code().is_empty()) {
-			_buffer_shader_override->set_code(_generate_buffer_shader_code());
-		}
-		code = _buffer_shader_override->get_code();
-		if (!_buffer_shader_override->is_connected("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders))) {
-			LOG(DEBUG, "Connecting changed signal to _update_shaders()");
-			_buffer_shader_override->connect("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders));
-		}
-	} else {
-		code = _generate_buffer_shader_code();
-	}
-	_buffer_shader->set_code(code);
-	RS->material_set_shader(_buffer_material, get_buffer_shader_rid());
-	LOG(DEBUG, "Buffer Material rid: ", _buffer_material, ", buffer shader rid: ", get_buffer_shader_rid());
 
 	// Update custom shader params in RenderingServer
 	{
@@ -990,6 +983,14 @@ void Terrain3DMaterial::_get_property_list(List<PropertyInfo> *p_list) const {
 		param_list.append_array(RS->get_shader_parameter_list(get_buffer_shader_rid()));
 	}
 
+	if (_ocean_shader_override_enabled && _ocean_shader_override.is_valid()) {
+		// Get shader parameters from custom shader
+		param_list.append_array(_ocean_shader_override->get_shader_uniform_list(true));
+	} else {
+		// Get shader parameters from default shader (eg world_noise)
+		param_list.append_array(RS->get_shader_parameter_list(get_ocean_shader_rid()));
+	}
+
 	_active_params.clear();
 	for (int i = 0; i < param_list.size(); i++) {
 		Dictionary dict = param_list[i];
@@ -1055,6 +1056,7 @@ bool Terrain3DMaterial::_set(const StringName &p_name, const Variant &p_property
 	IS_INIT_COND(!_active_params.has(p_name), Resource::_set(p_name, p_property));
 	if (p_property.get_type() == Variant::NIL) {
 		RS->material_set_param(_material, p_name, Variant());
+		RS->material_set_param(_ocean_material, p_name, Variant());
 		_shader_params.erase(p_name);
 		return true;
 	}
@@ -1067,14 +1069,17 @@ bool Terrain3DMaterial::_set(const StringName &p_name, const Variant &p_property
 			_shader_params[p_name] = tex;
 			RS->material_set_param(_material, p_name, tex->get_rid());
 			RS->material_set_param(_buffer_material, p_name, tex->get_rid());
+			RS->material_set_param(_ocean_material, p_name, tex->get_rid());
 		} else {
 			RS->material_set_param(_material, p_name, Variant());
 			RS->material_set_param(_buffer_material, p_name, Variant());
+			RS->material_set_param(_ocean_material, p_name, Variant());
 		}
 	} else {
 		_shader_params[p_name] = p_property;
 		RS->material_set_param(_material, p_name, p_property);
 		RS->material_set_param(_buffer_material, p_name, p_property);
+		RS->material_set_param(_ocean_material, p_name, p_property);
 	}
 	return true;
 }
@@ -1085,6 +1090,11 @@ bool Terrain3DMaterial::_get(const StringName &p_name, Variant &r_property) cons
 	IS_INIT_COND(!_active_params.has(p_name), Resource::_get(p_name, r_property));
 
 	r_property = RS->material_get_param(_material, p_name);
+
+	if (r_property && r_property.get_type() == Variant::NIL) {
+		r_property = RS->material_get_param(_ocean_material, p_name);
+	}
+
 	// Material server only has RIDs, but inspector needs objects for things like Textures
 	// So if its an RID, return the object
 	if (r_property.get_type() == Variant::RID && _shader_params.has(p_name)) {

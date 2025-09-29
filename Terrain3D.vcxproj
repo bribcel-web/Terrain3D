@@ -220,6 +220,7 @@
     <None Include="src\shaders\displacement.glsl" />
     <None Include="src\shaders\displacement_buffer.glsl" />
     <None Include="src\shaders\main.glsl" />
+    <None Include="src\shaders\ocean.glsl" />
     <None Include="src\shaders\overlays.glsl" />
     <None Include="src\shaders\samplers.glsl" />
     <None Include="src\shaders\world_noise.glsl" />
