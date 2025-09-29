@@ -420,29 +420,43 @@ String Terrain3DMaterial::_inject_editor_code(const String &p_shader) const {
 	return shader;
 }
 
-void Terrain3DMaterial::_update_shader() {
+void Terrain3DMaterial::_update_shaders() {
+	IS_INIT(VOID);
+	LOG(INFO, "Updating shaders");
+	_update_shader(_shader_override_enabled, _shader_override, _shader, _material);
+	_update_shader(_ocean_shader_override_enabled, _ocean_shader_override, _ocean_shader, _ocean_material);
+	_update_shader(_buffer_shader_override_enabled, _buffer_shader_override, _buffer_shader, _buffer_material);
+}
+
+void Terrain3DMaterial::_update_shader(bool p_shader_override_enabled, Ref<Shader> p_shader_override, Ref<Shader> p_shader, const RID p_material) {
 	IS_INIT(VOID);
 	LOG(INFO, "Updating shader");
 	String code;
 	Ref<RegEx> regex;
 	Ref<RegExMatch> match;
 	regex.instantiate();
-	// Terrain Material
-	if (_shader_override_enabled && _shader_override.is_valid()) {
-		if (_shader_override->get_code().is_empty()) {
-			_shader_override->set_code(_generate_shader_code());
+	if (p_shader_override_enabled && p_shader_override.is_valid()) {
+		if (p_shader_override->get_code().is_empty()) {
+			p_shader_override->set_code(_generate_shader_code());
 		}
-		code = _shader_override->get_code();
-		if (!_shader_override->is_connected("changed", callable_mp(this, &Terrain3DMaterial::_update_shader))) {
-			LOG(DEBUG, "Connecting changed signal to _update_shader()");
-			_shader_override->connect("changed", callable_mp(this, &Terrain3DMaterial::_update_shader));
+		code = p_shader_override->get_code();
+		if (!p_shader_override->is_connected("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders))) {
+			LOG(DEBUG, "Connecting changed signal to _update_shaders()");
+			p_shader_override->connect("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders));
 		}
 	} else {
 		code = _generate_shader_code();
 	}
-	_shader->set_code(_inject_editor_code(code));
-	RS->material_set_shader(_material, get_shader_rid());
-	LOG(DEBUG, "Material rid: ", _material, ", shader rid: ", get_shader_rid());
+	p_shader->set_code(_inject_editor_code(code));
+	RID shader_rid;
+	if (p_shader.is_valid()) {
+		shader_rid = p_shader->get_rid();
+	} else {
+		LOG(ERROR, "Shader is null");
+		return;
+	}
+	RS->material_set_shader(p_material, shader_rid);
+	LOG(DEBUG, "Material rid: ", p_material, ", shader rid: ", shader_rid);
 
 	// Displacement Buffer
 	if (_buffer_shader_override_enabled && _buffer_shader_override.is_valid()) {
@@ -450,9 +464,9 @@ void Terrain3DMaterial::_update_shader() {
 			_buffer_shader_override->set_code(_generate_buffer_shader_code());
 		}
 		code = _buffer_shader_override->get_code();
-		if (!_buffer_shader_override->is_connected("changed", callable_mp(this, &Terrain3DMaterial::_update_shader))) {
-			LOG(DEBUG, "Connecting changed signal to _update_shader()");
-			_buffer_shader_override->connect("changed", callable_mp(this, &Terrain3DMaterial::_update_shader));
+		if (!_buffer_shader_override->is_connected("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders))) {
+			LOG(DEBUG, "Connecting changed signal to _update_shaders()");
+			_buffer_shader_override->connect("changed", callable_mp(this, &Terrain3DMaterial::_update_shaders));
 		}
 	} else {
 		code = _generate_buffer_shader_code();
@@ -477,23 +491,20 @@ void Terrain3DMaterial::_update_shader() {
 		if (value.get_type() == Variant::OBJECT) {
 			Ref<Texture> tex = value;
 			if (tex.is_valid()) {
-				RS->material_set_param(_material, param, tex->get_rid());
-				RS->material_set_param(_buffer_material, param, tex->get_rid());
+				RS->material_set_param(p_material, param, tex->get_rid());
 			} else {
-				RS->material_set_param(_material, param, Variant());
-				RS->material_set_param(_buffer_material, param, Variant());
+				RS->material_set_param(p_material, param, Variant());
 			}
 		} else {
-			RS->material_set_param(_material, param, value);
-			RS->material_set_param(_buffer_material, param, value);
+			RS->material_set_param(p_material, param, value);
 		}
 	}
 
 	// Set specific shader parameters
-	RS->material_set_param(_material, "_background_mode", _world_background);
+	RS->material_set_param(p_material, "_background_mode", _world_background);
 
 	// If no noise texture, generate one
-	if (_active_params.has("noise_texture") && RS->material_get_param(_material, "noise_texture").get_type() == Variant::NIL) {
+	if (_active_params.has("noise_texture") && RS->material_get_param(p_material, "noise_texture").get_type() == Variant::NIL) {
 		LOG(INFO, "Generating default noise_texture for shader");
 		Ref<FastNoiseLite> fnoise;
 		fnoise.instantiate();
@@ -531,7 +542,13 @@ void Terrain3DMaterial::_update_shader() {
 	notify_property_list_changed();
 }
 
-void Terrain3DMaterial::_update_maps(const RID &p_material) {
+void Terrain3DMaterial::_update_maps() {
+	_update_material_maps(_material);
+	_update_material_maps(_ocean_material);
+	_update_material_maps(_buffer_material);
+}
+
+void Terrain3DMaterial::_update_material_maps(const RID p_material) {
 	IS_DATA_INIT(VOID);
 	LOG(EXTREME, "Updating maps in shader");
 
@@ -649,11 +666,14 @@ void Terrain3DMaterial::initialize(Terrain3D *p_terrain) {
 	if (!_buffer_material.is_valid()) {
 		_buffer_material = RS->material_create();
 	}
+	if (!_ocean_material.is_valid()) {
+		_ocean_material = RS->material_create();
+	}
 	_shader.instantiate();
 	_buffer_shader.instantiate();
-	_update_shader();
-	_update_maps(_material);
-	_update_maps(_buffer_material);
+	_ocean_shader.instantiate();
+	_update_shaders();
+	_update_maps();
 }
 
 void Terrain3DMaterial::uninitialize() {
@@ -681,34 +701,33 @@ void Terrain3DMaterial::destroy() {
 
 void Terrain3DMaterial::update(bool p_full) {
 	if (p_full) {
-		_update_shader();
+		_update_shaders();
 	}
-	_update_maps(_material);
-	_update_maps(_buffer_material);
+	_update_maps();
 }
 
 void Terrain3DMaterial::set_world_background(const WorldBackground p_background) {
 	LOG(INFO, "Enable world background: ", p_background);
 	_world_background = p_background;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_texture_filtering(const TextureFiltering p_filtering) {
 	LOG(INFO, "Setting texture filtering: ", p_filtering);
 	_texture_filtering = p_filtering;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_auto_shader(const bool p_enabled) {
 	LOG(INFO, "Enable auto shader: ", p_enabled);
 	_auto_shader = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_dual_scaling(const bool p_enabled) {
 	LOG(INFO, "Enable dual scaling: ", p_enabled);
 	_dual_scaling = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::enable_shader_override(const bool p_enabled) {
@@ -718,13 +737,29 @@ void Terrain3DMaterial::enable_shader_override(const bool p_enabled) {
 		LOG(DEBUG, "Instantiating new _shader_override");
 		_shader_override.instantiate();
 	}
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_shader_override(const Ref<Shader> &p_shader) {
 	LOG(INFO, "Setting override shader");
 	_shader_override = p_shader;
-	_update_shader();
+	_update_shaders();
+}
+
+void Terrain3DMaterial::enable_ocean_shader_override(const bool p_enabled) {
+	LOG(INFO, "Enable shader override: ", p_enabled);
+	_ocean_shader_override_enabled = p_enabled;
+	if (_ocean_shader_override_enabled && _ocean_shader_override.is_null()) {
+		LOG(DEBUG, "Instantiating new _shader_override");
+		_ocean_shader_override.instantiate();
+	}
+	_update_shaders();
+}
+
+void Terrain3DMaterial::set_ocean_shader_override(const Ref<Shader> &p_shader) {
+	LOG(INFO, "Setting override shader");
+	_ocean_shader_override = p_shader;
+	_update_shaders();
 }
 
 void Terrain3DMaterial::enable_buffer_shader_override(const bool p_enabled) {
@@ -734,13 +769,13 @@ void Terrain3DMaterial::enable_buffer_shader_override(const bool p_enabled) {
 		LOG(DEBUG, "Instantiating new _shader_override");
 		_buffer_shader_override.instantiate();
 	}
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_buffer_shader_override(const Ref<Shader> &p_shader) {
 	LOG(INFO, "Setting override shader");
 	_buffer_shader_override = p_shader;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_shader_param(const StringName &p_name, const Variant &p_value) {
@@ -758,120 +793,120 @@ Variant Terrain3DMaterial::get_shader_param(const StringName &p_name) const {
 void Terrain3DMaterial::set_show_region_grid(const bool p_enabled) {
 	LOG(INFO, "Enable show_region_grid: ", p_enabled);
 	_show_region_grid = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_instancer_grid(const bool p_enabled) {
 	LOG(INFO, "Enable show_instancer_grid: ", p_enabled);
 	_show_instancer_grid = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_vertex_grid(const bool p_enabled) {
 	LOG(INFO, "Enable show_vertex_grid: ", p_enabled);
 	_show_vertex_grid = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_contours(const bool p_enabled) {
 	LOG(INFO, "Enable show_contours: ", p_enabled);
 	_show_contours = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_navigation(const bool p_enabled) {
 	LOG(INFO, "Enable show_navigation: ", p_enabled);
 	_show_navigation = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_checkered(const bool p_enabled) {
 	LOG(INFO, "Enable set_show_checkered: ", p_enabled);
 	_debug_view_checkered = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_grey(const bool p_enabled) {
 	LOG(INFO, "Enable show_grey: ", p_enabled);
 	_debug_view_grey = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_heightmap(const bool p_enabled) {
 	LOG(INFO, "Enable show_heightmap: ", p_enabled);
 	_debug_view_heightmap = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_jaggedness(const bool p_enabled) {
 	LOG(INFO, "Enable show_jaggedness: ", p_enabled);
 	_debug_view_jaggedness = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_autoshader(const bool p_enabled) {
 	LOG(INFO, "Enable show_autoshader: ", p_enabled);
 	_debug_view_autoshader = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_control_texture(const bool p_enabled) {
 	LOG(INFO, "Enable show_control_texture: ", p_enabled);
 	_debug_view_control_texture = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_control_blend(const bool p_enabled) {
 	LOG(INFO, "Enable show_control_blend: ", p_enabled);
 	_debug_view_control_blend = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_control_angle(const bool p_enabled) {
 	LOG(INFO, "Enable show_control_angle: ", p_enabled);
 	_debug_view_control_angle = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_control_scale(const bool p_enabled) {
 	LOG(INFO, "Enable show_control_scale: ", p_enabled);
 	_debug_view_control_scale = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_colormap(const bool p_enabled) {
 	LOG(INFO, "Enable show_colormap: ", p_enabled);
 	_debug_view_colormap = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_roughmap(const bool p_enabled) {
 	LOG(INFO, "Enable show_roughmap: ", p_enabled);
 	_debug_view_roughmap = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_texture_height(const bool p_enabled) {
 	LOG(INFO, "Enable show_texture_height: ", p_enabled);
 	_debug_view_tex_height = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_texture_normal(const bool p_enabled) {
 	LOG(INFO, "Enable show_texture_normal: ", p_enabled);
 	_debug_view_tex_normal = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 void Terrain3DMaterial::set_show_texture_rough(const bool p_enabled) {
 	LOG(INFO, "Enable show_texture_rough: ", p_enabled);
 	_debug_view_tex_rough = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 void Terrain3DMaterial::set_show_displacement_buffer(const bool p_enabled) {
 	LOG(INFO, "Enable show_texture_rough: ", p_enabled);
 	_debug_view_displacement_buffer = p_enabled;
-	_update_shader();
+	_update_shaders();
 }
 
 Error Terrain3DMaterial::save(const String &p_path) {
@@ -1076,6 +1111,8 @@ void Terrain3DMaterial::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_shader_rid"), &Terrain3DMaterial::get_shader_rid);
 	ClassDB::bind_method(D_METHOD("get_buffer_material_rid"), &Terrain3DMaterial::get_buffer_material_rid);
 	ClassDB::bind_method(D_METHOD("get_buffer_shader_rid"), &Terrain3DMaterial::get_buffer_shader_rid);
+	ClassDB::bind_method(D_METHOD("get_ocean_material_rid"), &Terrain3DMaterial::get_ocean_material_rid);
+	ClassDB::bind_method(D_METHOD("get_ocean_shader_rid"), &Terrain3DMaterial::get_ocean_shader_rid);
 
 	ClassDB::bind_method(D_METHOD("set_world_background", "background"), &Terrain3DMaterial::set_world_background);
 	ClassDB::bind_method(D_METHOD("get_world_background"), &Terrain3DMaterial::get_world_background);
@@ -1095,6 +1132,11 @@ void Terrain3DMaterial::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_buffer_shader_override_enabled"), &Terrain3DMaterial::is_buffer_shader_override_enabled);
 	ClassDB::bind_method(D_METHOD("set_buffer_shader_override", "shader"), &Terrain3DMaterial::set_buffer_shader_override);
 	ClassDB::bind_method(D_METHOD("get_buffer_shader_override"), &Terrain3DMaterial::get_buffer_shader_override);
+
+	ClassDB::bind_method(D_METHOD("enable_ocean_shader_override", "enabled"), &Terrain3DMaterial::enable_ocean_shader_override);
+	ClassDB::bind_method(D_METHOD("is_ocean_shader_override_enabled"), &Terrain3DMaterial::is_ocean_shader_override_enabled);
+	ClassDB::bind_method(D_METHOD("set_ocean_shader_override", "shader"), &Terrain3DMaterial::set_ocean_shader_override);
+	ClassDB::bind_method(D_METHOD("get_ocean_shader_override"), &Terrain3DMaterial::get_ocean_shader_override);
 
 	ClassDB::bind_method(D_METHOD("set_shader_param", "name", "value"), &Terrain3DMaterial::set_shader_param);
 	ClassDB::bind_method(D_METHOD("get_shader_param", "name"), &Terrain3DMaterial::get_shader_param);
@@ -1154,6 +1196,8 @@ void Terrain3DMaterial::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "shader_override", PROPERTY_HINT_RESOURCE_TYPE, "Shader"), "set_shader_override", "get_shader_override");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "buffer_shader_override_enabled"), "enable_buffer_shader_override", "is_buffer_shader_override_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "buffer_shader_override", PROPERTY_HINT_RESOURCE_TYPE, "Shader"), "set_buffer_shader_override", "get_buffer_shader_override");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "ocean_shader_override_enabled"), "enable_ocean_shader_override", "is_ocean_shader_override_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "ocean_shader_override", PROPERTY_HINT_RESOURCE_TYPE, "Shader"), "set_ocean_shader_override", "get_ocean_shader_override");
 
 	// Hidden in Material, aliased in Terrain3D
 	//ADD_GROUP("Overlays", "show_");

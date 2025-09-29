@@ -44,6 +44,10 @@ private:
 	Ref<Shader> _buffer_shader; // Active buffer shader
 	bool _buffer_shader_override_enabled = false;
 	Ref<Shader> _buffer_shader_override; // User's shader we copy code from
+	RID _ocean_material;
+	Ref<Shader> _ocean_shader; // Active shader
+	bool _ocean_shader_override_enabled = false;
+	Ref<Shader> _ocean_shader_override; // User's shader we copy code from
 
 	// Material Features
 	WorldBackground _world_background = FLAT;
@@ -84,8 +88,10 @@ private:
 	String _generate_buffer_shader_code();
 	String _strip_comments(const String &p_shader) const;
 	String _inject_editor_code(const String &p_shader) const;
-	void _update_shader();
-	void _update_maps(const RID &p_material);
+	void _update_shaders();
+	void _update_shader(bool p_shader_override_enabled, Ref<Shader> p_shader_override, Ref<Shader> p_shader, const RID p_material);
+	void _update_material_maps(const RID p_material);
+	void _update_maps();
 	void _update_texture_arrays();
 	void _set_shader_parameters(const Dictionary &p_dict);
 	Dictionary _get_shader_parameters() const { return _shader_params; }
@@ -101,6 +107,8 @@ public:
 	void update(bool p_full = false);
 	RID get_material_rid() const { return _material; }
 	RID get_shader_rid() const { return _shader.is_valid() ? _shader->get_rid() : RID(); }
+	RID get_ocean_material_rid() const { return _ocean_material; }
+	RID get_ocean_shader_rid() const { return _ocean_shader.is_valid() ? _ocean_shader->get_rid() : RID(); }
 
 	RID get_buffer_material_rid() const { return _buffer_material; }
 	RID get_buffer_shader_rid() const { return _buffer_shader.is_valid() ? _buffer_shader->get_rid() : RID(); }
@@ -124,6 +132,11 @@ public:
 	bool is_buffer_shader_override_enabled() const { return _buffer_shader_override_enabled; }
 	void set_buffer_shader_override(const Ref<Shader> &p_shader);
 	Ref<Shader> get_buffer_shader_override() const { return _buffer_shader_override; }
+
+	void enable_ocean_shader_override(const bool p_enabled);
+	bool is_ocean_shader_override_enabled() const { return _ocean_shader_override_enabled; }
+	void set_ocean_shader_override(const Ref<Shader> &p_shader);
+	Ref<Shader> get_ocean_shader_override() const { return _ocean_shader_override; }
 
 	void set_shader_param(const StringName &p_name, const Variant &p_value);
 	Variant get_shader_param(const StringName &p_name) const;
