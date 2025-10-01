@@ -82,6 +82,9 @@ private:
 	int _tessellation_level = 3;
 	real_t _vertex_spacing = 1.0f;
 
+	// Ocean material
+	Ref<Material> _ocean_material;
+
 	// Rendering
 	uint32_t _render_layers = 1 | (1 << 31); // Bit 1 and 32 for the cursor
 	RenderingServer::ShadowCastingSetting _cast_shadows = RenderingServer::SHADOW_CASTING_SETTING_ON;
@@ -188,6 +191,13 @@ public:
 	int get_tessellation_level() const { return _tessellation_level; }
 	void set_vertex_spacing(const real_t p_spacing);
 	real_t get_vertex_spacing() const { return _vertex_spacing; }
+
+	// Ocean
+	void set_ocean_enabled(const bool p_enabled) { _mesher ? _mesher->set_ocean_enabled(p_enabled) : void(); }
+	bool get_ocean_enabled() const { return _mesher ? _mesher->get_ocean_enabled() : false; }
+	Ref<Material> get_ocean_material() const { return _ocean_material; }
+	void set_ocean_material(const Ref<Material> &p_material);
+	RID get_ocean_material_rid() const { return _ocean_material.is_valid() ? _ocean_material->get_rid() : RID(); }
 
 	// Rendering
 	void set_render_layers(const uint32_t p_layers);

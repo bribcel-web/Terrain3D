@@ -129,7 +129,6 @@ void Terrain3D::__physics_process(const double p_delta) {
 		RS->material_set_param(_material->get_buffer_material_rid(), "_target_pos", get_clipmap_target_position());
 		_d_buffer_vp->set_update_mode(SubViewport::UPDATE_ONCE);
 	}
-	
 }
 
 /**
@@ -280,7 +279,7 @@ void Terrain3D::_setup_displacement_buffer() {
 	_d_buffer_vp->set_size(Vector2i(2, 2));
 	_d_buffer_vp->set_disable_3d(true);
 	_d_buffer_vp->set_update_mode(SubViewport::UPDATE_ONCE);
-	
+
 	_d_buffer_rect = memnew(ColorRect);
 	_d_buffer_rect->set_name("DBufferRect");
 	_d_buffer_vp->add_child(_d_buffer_rect, true);
@@ -708,6 +707,13 @@ void Terrain3D::set_vertex_spacing(const real_t p_spacing) {
 	}
 	if (IS_EDITOR && _plugin) {
 		_plugin->call("update_region_grid");
+	}
+}
+
+void Terrain3D::set_ocean_material(const Ref<Material> &p_material) {
+	_ocean_material = p_material;
+	if (_mesher) {
+		_mesher->update_ocean_material_override(_ocean_material);
 	}
 }
 
@@ -1188,6 +1194,12 @@ void Terrain3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_vertex_spacing", "scale"), &Terrain3D::set_vertex_spacing);
 	ClassDB::bind_method(D_METHOD("get_vertex_spacing"), &Terrain3D::get_vertex_spacing);
 
+	// Ocean
+	ClassDB::bind_method(D_METHOD("set_ocean_enabled", "enabled"), &Terrain3D::set_ocean_enabled);
+	ClassDB::bind_method(D_METHOD("get_ocean_enabled"), &Terrain3D::get_ocean_enabled);
+	ClassDB::bind_method(D_METHOD("set_ocean_material", "material"), &Terrain3D::set_ocean_material);
+	ClassDB::bind_method(D_METHOD("get_ocean_material"), &Terrain3D::get_ocean_material);
+
 	// Rendering
 	ClassDB::bind_method(D_METHOD("set_render_layers", "layers"), &Terrain3D::set_render_layers);
 	ClassDB::bind_method(D_METHOD("get_render_layers"), &Terrain3D::get_render_layers);
@@ -1289,6 +1301,10 @@ void Terrain3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "tessellation_level", PROPERTY_HINT_RANGE, "0,6,1"), "set_tessellation_level", "get_tessellation_level");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "vertex_spacing", PROPERTY_HINT_RANGE, "0.25,10.0,0.05,or_greater"), "set_vertex_spacing", "get_vertex_spacing");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "clipmap_target", PROPERTY_HINT_NODE_TYPE, "Node3D"), "set_clipmap_target", "get_clipmap_target");
+
+	ADD_GROUP("Ocean", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "ocean_enabled"), "set_ocean_enabled", "get_ocean_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "ocean_material", PROPERTY_HINT_RESOURCE_TYPE, "ShaderMaterial"), "set_ocean_material", "get_ocean_material");
 
 	ADD_GROUP("Rendering", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "render_layers", PROPERTY_HINT_LAYERS_3D_RENDER), "set_render_layers", "get_render_layers");
